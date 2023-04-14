@@ -41,7 +41,7 @@ void loop();
 #define TIMEZONE TZ_Europe_Brussels
 
 // You may need a fast SD card. Set this as high as it will work (40MHz max).
-#define SPI_SPEED SD_SCK_MHZ(30)
+#define SPI_SPEED SD_SCK_MHZ(20)
 #define SPI_CS_PIN D0
 
 
@@ -62,13 +62,16 @@ File dir;
 //Audioplayback variables
 AudioFileSourceSD *source = NULL;
 AudioFileSourceID3 *id3;
+AudioFileSource *mp3;
 AudioOutputI2S *output = NULL;
 AudioGeneratorMP3 *decoder = NULL;
 //Keypad variables
 const uint8_t KEYPAD_ADDRESS = 0x20;
 I2CKeyPad keyPad(KEYPAD_ADDRESS);
-char keys[] = "1A23798B465C*D0#NF";  // N = NoKey, F = Fail (e.g. >1 keys pressed)
+char keys[] = "1A23798B465CsD0#NF";  // N = NoKey, F = Fail (e.g. >1 keys pressed)
+String lastkeys = "NNNNNNNNNN"; //no keys yet pressed
 volatile bool keyChange = false; // for interrupt in case of a keychange
+bool samplePlayed = false;
 
 
 
@@ -207,6 +210,32 @@ void NTP_Sync_Callback(){
   Serial.println(timeString);
 }
 
+bool playMP3FromPath(String path){
+  if (SD.exists(path)){
+      source->close();
+      if ((decoder) && (decoder->isRunning())){
+        decoder->stop();
+      }
+      Serial.printf_P(PSTR("Playing '%s' from SD card...\n"), path);
+      File file = SD.open(path);
+      if (source->open(file.name())){
+        Serial.printf_P(PSTR("Playing '%s' from SD card...\n"), file.name());
+        id3 = new AudioFileSourceID3(source);
+        decoder->begin(id3, output);
+        return true;
+      }
+      else {
+          Serial.printf_P(PSTR("Error opening '%s'\n"), file.name());
+          return false;
+      }
+    }
+    else {
+      Serial.printf_P(PSTR("No file '%s' found on SD card...\n"), path);
+      return false;
+    }
+  return false;
+}
+    
 
 void setup() {
   StartTime = millis();
@@ -252,9 +281,6 @@ void setup() {
     Serial.println("\nERROR: cannot communicate to keypad.\nPlease reboot.\n");
     while (1);
   }
-  
-
-
 }
 
 
@@ -268,34 +294,48 @@ void loop() {
     {
       Serial.print("press: ");
       Serial.println(keys[index]);
+      String path = "/f.mp3";
+      path[1]=keys[index];
+      lastkeys = lastkeys.substring(1,9)+keys[index];
+      samplePlayed=false;
+      Serial.println(lastkeys);
+      playMP3FromPath(path);
     }
     else
     {
       Serial.println("release");
     }
+  }
 
+  if ((decoder) && (decoder->isRunning()))
+  {
+    if (!decoder->loop()) decoder->stop();
   }
-  // if ((decoder) && (decoder->isRunning())) {
-  //   if (!decoder->loop()) decoder->stop();
-  // } else {
-  //   File file = dir.openNextFile();
-  //   if (file) {      
-  //     if (String(file.name()).endsWith(".mp3")) {
-  //       source->close();
-  //       if (source->open(file.name())) {
-  //         Serial.printf_P(PSTR("Playing '%s' from SD card...\n"), file.name());
-  //         id3 = new AudioFileSourceID3(source);
-  //         id3->RegisterMetadataCB(MDCallback, (void*)"ID3TAG");
-  //         decoder->begin(id3, output);
-  //       } else {
-  //         Serial.printf_P(PSTR("Error opening '%s'\n"), file.name());
-  //       }
-  //     }
-  //   } else {
-  //     Serial.println(F("Playback from SD card done\n"));
-  //     delay(1000);
-  //   }      
+  else {
+    if(!samplePlayed && (lastkeys.substring(3,9) == "797204")){
+      playMP3FromPath("/797204.mp3");
+      samplePlayed=true;
+    }
   }
+
+  // else {
+    // File file = dir.openNextFile();
+    // if (file) {      
+    //   if (String(file.name()).endsWith(".mp3")) {
+    //     source->close();
+    //     if (source->open(file.name())) {
+    //       Serial.printf_P(PSTR("Playing '%s' from SD card...\n"), file.name());
+    //       id3 = new AudioFileSourceID3(source);
+    //       decoder->begin(id3, output);
+    //     } else {
+    //       Serial.printf_P(PSTR("Error opening '%s'\n"), file.name());
+    //     }
+    //   }
+    // }
+    // else {
+    //   dir=SD.open("/");
+    // }     
+  // }
 }
 
 
