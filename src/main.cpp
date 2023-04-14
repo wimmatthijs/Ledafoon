@@ -238,7 +238,6 @@ bool playMP3FromPath(String path){
     
 
 void setup() {
-  StartTime = millis();
   //Serial.begin(74880); //Same as ESP8266 bootloader
   
   //TODO: this should be one of the i2C buttons on the phone and not a pin on the ESP
@@ -283,15 +282,16 @@ void setup() {
   }
 }
 
-
+unsigned long lastPress = 0;
 void loop() {
   if (keyChange)
   {
     uint8_t index = keyPad.getKey();
     // only after keyChange is handled it is time reset the flag
     keyChange = false;
-    if (index != 16)
+    if (index != 16 && millis() - lastPress > 150)
     {
+      lastPress = millis();
       Serial.print("press: ");
       Serial.println(keys[index]);
       String path = "/f.mp3";
