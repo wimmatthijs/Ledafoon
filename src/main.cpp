@@ -69,9 +69,9 @@ AudioGeneratorMP3 *decoder = NULL;
 const uint8_t KEYPAD_ADDRESS = 0x20;
 I2CKeyPad keyPad(KEYPAD_ADDRESS);
 char keys[] = "1A23798B465CsD0#NF";  // N = NoKey, F = Fail (e.g. >1 keys pressed)
-String lastkeys = "NNNNNNNNNN"; //no keys yet pressed
+String lastkeys = ""; //no keys yet pressed
 volatile bool keyChange = false; // for interrupt in case of a keychange
-bool samplePlayed = false;
+bool samplePlaying = false;
 
 
 
@@ -216,7 +216,6 @@ bool playMP3FromPath(String path){
       if ((decoder) && (decoder->isRunning())){
         decoder->stop();
       }
-      Serial.printf_P(PSTR("Playing '%s' from SD card...\n"), path);
       File file = SD.open(path);
       if (source->open(file.name())){
         Serial.printf_P(PSTR("Playing '%s' from SD card...\n"), file.name());
@@ -247,7 +246,7 @@ void setup() {
     //ResetWifiRoutine();
   //}
 
-  Serial.begin(115200);
+  Serial.begin(74880);
   delay(1000);
   Serial.println("Serial started");
 
@@ -283,21 +282,27 @@ void setup() {
 }
 
 unsigned long lastPress = 0;
+unsigned int numberLength = 0;
 void loop() {
   if (keyChange)
   {
     uint8_t index = keyPad.getKey();
     // only after keyChange is handled it is time reset the flag
     keyChange = false;
-    if (index != 16 && millis() - lastPress > 150)
+    if (index != 16 && millis() - lastPress > 250)
     {
       lastPress = millis();
       Serial.print("press: ");
       Serial.println(keys[index]);
       String path = "/f.mp3";
       path[1]=keys[index];
-      lastkeys = lastkeys.substring(1,9)+keys[index];
-      samplePlayed=false;
+      if(index == 12 || index == 15){  //star or pound, should become horn down
+        lastkeys = "";
+        numberLength = 0;
+      } else {
+        lastkeys = lastkeys+keys[index];
+      }
+      samplePlaying=false;
       Serial.println(lastkeys);
       playMP3FromPath(path);
     }
@@ -312,9 +317,16 @@ void loop() {
     if (!decoder->loop()) decoder->stop();
   }
   else {
-    if(!samplePlayed && (lastkeys.substring(3,9) == "797204")){
-      playMP3FromPath("/797204.mp3");
-      samplePlayed=true;
+    if(!samplePlaying && lastkeys.length() > 2 && lastkeys.length() > numberLength){
+      numberLength = lastkeys.length();
+      String samplePath = "/" + lastkeys + ".mp3";
+      if(SD.exists(samplePath)){
+        samplePlaying=true;
+        //TODO: resetting the state should be a separate function
+        lastkeys = "";
+        numberLength = 0;
+        playMP3FromPath(samplePath);
+      }
     }
   }
 
