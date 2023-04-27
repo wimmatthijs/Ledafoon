@@ -10,11 +10,7 @@
 #include <time.h>   //for doing time stuff
 #include <TZ.h>      //timezones
 #include "Wire.h"
-#include "I2CKeyPad.h"
-
-#define RESET_KEY '*' //button to reset microcontroller to reset WiFiManger
-#define RESET_KEY_TIME_SECONDS 5 //how long the reset button needs to be pushed in order for the reset routine to be triggered
-
+#include "PhoneKeypad.h"
 
 
 //******************************************************************
@@ -44,6 +40,8 @@ void loop();
 #define SPI_SPEED SD_SCK_MHZ(20)
 #define SPI_CS_PIN D0
 
+#define WIFI_RESET_KEY 's' //button to reset microcontroller to reset WiFiManger
+#define LONGPRESS_TIME_SECONDS 5 //how long the reset button needs to be pushed in order for the reset routine to be triggered
 
 
 
@@ -52,6 +50,7 @@ void loop();
 //******************************************************************
 //Variables for WiFi
 WiFiSecrets wiFiSecrets;
+unsigned long wiFiConnectStartMillis;
 //timekeeping variables
 volatile bool rtc_synced = false;   //keeps track if timesync already occured or not.
 static time_t now;
@@ -67,11 +66,11 @@ AudioOutputI2S *output = NULL;
 AudioGeneratorMP3 *decoder = NULL;
 //Keypad variables
 const uint8_t KEYPAD_ADDRESS = 0x20;
-I2CKeyPad keyPad(KEYPAD_ADDRESS);
-char keys[] = "1A23798B465CsD0#NF";  // N = NoKey, F = Fail (e.g. >1 keys pressed)
-String lastkeys = ""; //no keys yet pressed
+PhoneKeypad keyPad(KEYPAD_ADDRESS);
+char keys[] = "1A23798B465CsD0#NF@";  // N = NoKey, F = Fail (e.g. >1 keys pressed), @ = Bounced
 volatile bool keyChange = false; // for interrupt in case of a keychange
 bool samplePlaying = false;
+
 
 
 
@@ -115,22 +114,11 @@ void ConnectToWifi(){
   initFS();
   if (!LittleFS.exists(F("/WiFiSecrets.txt"))){
     //TODO: audio signal that wifi was not saved, run the wifimanager
+    Serial.println("No WiFi credentials found, starting Ledafoon Accesspoint");
     RunWiFiManager();
   }
   wiFiSecrets = RecoverWiFiSecrets();
   WiFi.begin(wiFiSecrets.SSID, wiFiSecrets.Pass);
-  uint counter = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    //do something usefull while connecting ;)
-    //TODO : can there be more useful stuff here instead of just waiting?
-    yield();
-    delay(100);
-    //Serial.print('.');
-  }
-  if(millis()>counter+10000){ //If WiFi not connected after 10 seconds, stop waiting for connection
-    //TODO: audio feedback that wifi is not connected
-    
-  }
 }
 
 void RunWiFiManager(){
@@ -146,18 +134,8 @@ void RunWiFiManager(){
 }
 
 void ResetWifiRoutine(){
-    const int NumberOfSeconds = 3;
-    //Serial.print("Resetting WiFi credentials");
-    while(digitalRead(RESET_KEY) == HIGH && millis()<StartTime+NumberOfSeconds*1000UL){
-        //Serial.print('.');
-        yield();
-        delay(100);
-    }
-    //Serial.println();
-    if (millis()>StartTime+NumberOfSeconds*1000UL){
-        deleteAllFiles();
-        RunWiFiManager();
-    }
+  deleteAllFiles();
+  RunWiFiManager();
 }
 
 void SetupTime() {
@@ -165,24 +143,7 @@ void SetupTime() {
     configTime(TIMEZONE, "be.pool.ntp.org");
     settimeofday_cb(NTP_Sync_Callback);
   }
-  else{
-    //Serial.println("time was already synced, using RTC");
-  }
   return;
-}
-
-
-void WaitforNTPCallbak(){
-  uint timenow = millis();
-  while(!rtc_synced && millis()<timenow+5000){ //wait for 5 seconds more for the time to come in...
-    //Serial.println("Waiting for timeserver");
-    yield();
-    delay(500);
-  }
-  if(!rtc_synced){
-    //Not able to set up time correctly, go to sleep and try again 3 hours;
-    ESP.deepSleep(ESP.deepSleepMax());
-  }
 }
 
 void NTP_Sync_Callback(){
@@ -237,8 +198,7 @@ bool playMP3FromPath(String path){
     
 
 void setup() {
-  //Serial.begin(74880); //Same as ESP8266 bootloader
-  
+   
   //TODO: this should be one of the i2C buttons on the phone and not a pin on the ESP
   //pinMode(BUTTON_PIN, INPUT);  
   //If reset button remains pushed, reset the WiFi
@@ -246,7 +206,7 @@ void setup() {
     //ResetWifiRoutine();
   //}
 
-  Serial.begin(74880);
+  Serial.begin(74880); //Same as ESP8266 bootloader
   delay(1000);
   Serial.println("Serial started");
 
@@ -261,93 +221,85 @@ void setup() {
   SD.begin(SPI_CS_PIN, SPI_SPEED);
   dir = SD.open("/");
 
-  Serial.println("Connect to WiFi");
+  Serial.println("Connecting to WiFi");
+  wiFiConnectStartMillis = millis();
   ConnectToWifi();
-  //Serial.println("Calling SetupTime");
-  SetupTime();
-  if (!rtc_synced){
-    WaitforNTPCallbak();
-  }
+
     // NOTE: PCF8574 will generate an interrupt on key press and release.
   pinMode(D3, INPUT_PULLUP);
   attachInterrupt(D3, keyChanged, FALLING);
   keyChange = false;
   Wire.setClock(400000);
   Wire.begin();
+  keyPad.loadKeyMap(keys);
+  keyPad.setLatestCharsDepth(20);
+  keyPad.setDebounce(250);
   if (keyPad.begin() == false)
   {
-    Serial.println("\nERROR: cannot communicate to keypad.\nPlease reboot.\n");
-    while (1);
+    Serial.println("\nERROR: cannot communicate to keypad.\nRebooting.\n");
+    delay(5000);
+    //ESP.restart();
   }
 }
 
-unsigned long lastPress = 0;
-unsigned int numberLength = 0;
+
+bool rtcSyncStarted = false;
+uint8_t numberLength = 0;
 void loop() {
-  if (keyChange)
-  {
-    uint8_t index = keyPad.getKey();
-    // only after keyChange is handled it is time reset the flag
-    keyChange = false;
-    if (index != 16 && millis() - lastPress > 250)
-    {
-      lastPress = millis();
-      Serial.print("press: ");
-      Serial.println(keys[index]);
-      String path = "/f.mp3";
-      path[1]=keys[index];
-      if(index == 12 || index == 15){  //star or pound, should become horn down
-        lastkeys = "";
-        numberLength = 0;
-      } else {
-        lastkeys = lastkeys+keys[index];
-      }
-      samplePlaying=false;
-      Serial.println(lastkeys);
-      playMP3FromPath(path);
-    }
-    else
-    {
-      Serial.println("release");
-    }
+  
+  //wifi and rtc management
+  if(!rtcSyncStarted && !rtc_synced && WiFi.status()==WL_CONNECTED){
+    Serial.println("WiFi Connected, synchronising time");
+    rtcSyncStarted = true;
+    SetupTime();
+  }
+  if(rtc_synced && WiFi.status()==WL_CONNECTION_LOST){
+    rtc_synced=false;
   }
 
+  //keypad management
+  if (keyChange)
+  {
+    uint8_t index = keyPad.readKey();
+    keyChange = false;
+    if (index < 16)
+    {
+      String path = "/s.mp3";
+      path[1]=keyPad.getChar();
+      if(index == 12 || index == 15){  //star or pound clears it for now, should become horn down
+        keyPad.clearLatestChars();
+      } 
+      samplePlaying=false;
+      playMP3FromPath(path);
+    }
+  }
+  if(keyPad.isPressed() && keyPad.getPressLengthMillis() > LONGPRESS_TIME_SECONDS*1000){
+    //perform special reset-functions on longpresses
+    Serial.println("Longpress detected");
+    if(keyPad.getChar()==WIFI_RESET_KEY){
+      Serial.println("Resetting WiFi network");
+      ResetWifiRoutine();
+    }
+  }
+  
+  //decode management
   if ((decoder) && (decoder->isRunning()))
   {
     if (!decoder->loop()) decoder->stop();
   }
   else {
-    if(!samplePlaying && lastkeys.length() > 2 && lastkeys.length() > numberLength){
-      numberLength = lastkeys.length();
-      String samplePath = "/" + lastkeys + ".mp3";
+    if(!samplePlaying && keyPad.getLatestCharsLength() > 2 && keyPad.getLatestCharsLength() > numberLength){
+      numberLength = keyPad.getLatestCharsLength();
+      String samplePath = "/" + keyPad.getLatestChars() + ".mp3";
       if(SD.exists(samplePath)){
         samplePlaying=true;
         //TODO: resetting the state should be a separate function
-        lastkeys = "";
+        keyPad.clearLatestChars();
         numberLength = 0;
         playMP3FromPath(samplePath);
       }
     }
   }
-
-  // else {
-    // File file = dir.openNextFile();
-    // if (file) {      
-    //   if (String(file.name()).endsWith(".mp3")) {
-    //     source->close();
-    //     if (source->open(file.name())) {
-    //       Serial.printf_P(PSTR("Playing '%s' from SD card...\n"), file.name());
-    //       id3 = new AudioFileSourceID3(source);
-    //       decoder->begin(id3, output);
-    //     } else {
-    //       Serial.printf_P(PSTR("Error opening '%s'\n"), file.name());
-    //     }
-    //   }
-    // }
-    // else {
-    //   dir=SD.open("/");
-    // }     
-  // }
 }
 
 

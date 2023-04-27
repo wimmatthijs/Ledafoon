@@ -6,6 +6,6 @@
 struct WiFiSecrets{
   String SSID;
   String Pass;
-}; 
+};
 
 #endif /* ifndef FORECAST_RECORD_H_ */
