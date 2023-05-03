@@ -244,7 +244,7 @@ void setup() {
 
 
 bool rtcSyncStarted = false;
-uint8_t numberLength = 0;
+
 void loop() {
   
   //wifi and rtc management
@@ -272,6 +272,9 @@ void loop() {
       samplePlaying=false;
       playMP3FromPath(path);
     }
+    Serial.print(keyPad.getLatestCharsLength());
+    Serial.print(": ");
+    Serial.println(keyPad.getLatestChars());
   }
   if(keyPad.isPressed() && keyPad.getPressLengthMillis() > LONGPRESS_TIME_SECONDS*1000){
     //perform special reset-functions on longpresses
@@ -285,17 +288,17 @@ void loop() {
   //decode management
   if ((decoder) && (decoder->isRunning()))
   {
-    if (!decoder->loop()) decoder->stop();
+    if (!decoder->loop()){
+      decoder->stop();
+      samplePlaying=false;
+    }
   }
   else {
-    if(!samplePlaying && keyPad.getLatestCharsLength() > 2 && keyPad.getLatestCharsLength() > numberLength){
-      numberLength = keyPad.getLatestCharsLength();
+    if(keyPad.getLatestCharsLength()>2){
       String samplePath = "/" + keyPad.getLatestChars() + ".mp3";
       if(SD.exists(samplePath)){
         samplePlaying=true;
-        //TODO: resetting the state should be a separate function
         keyPad.clearLatestChars();
-        numberLength = 0;
         playMP3FromPath(samplePath);
       }
     }
