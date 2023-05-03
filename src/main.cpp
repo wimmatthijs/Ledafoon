@@ -5,7 +5,7 @@
 #include "AudioFileSourceID3.h"
 #include <WiFiManager.h>
 #include "datatypes.h"
-#include "LFSOperations.h"
+#include "FSOperations.h"
 #include "WiFiManagerApp.h"
 #include <time.h>   //for doing time stuff
 #include <TZ.h>      //timezones
@@ -111,8 +111,7 @@ void MDCallback(void *cbData, const char *type, bool isUnicode, const char *stri
 
 void ConnectToWifi(){
   WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
-  initFS();
-  if (!LittleFS.exists(F("/WiFiSecrets.txt"))){
+  if (!SD.exists("/WiFiSecrets.txt")){
     //TODO: audio signal that wifi was not saved, run the wifimanager
     Serial.println("No WiFi credentials found, starting Ledafoon Accesspoint");
     RunWiFiManager();
@@ -134,7 +133,7 @@ void RunWiFiManager(){
 }
 
 void ResetWifiRoutine(){
-  deleteAllFiles();
+  if (SD.exists("/WiFiSecrets.txt")) SD.remove("/WiFiSecrets.txt");
   RunWiFiManager();
 }
 
@@ -218,7 +217,11 @@ void setup() {
   // NOTE: SD.begin(...) should be called AFTER AudioOutput...()
   //       to takover the the SPI pins if they share some with I2S
   //       (i.e. D8 on Wemos D1 mini is both I2S BCK and SPI SS)
-  SD.begin(SPI_CS_PIN, SPI_SPEED);
+  if(!SD.begin(SPI_CS_PIN, SPI_SPEED)){
+    Serial.println("Communication with SD card Failed");
+    ESP.deepSleep(ESP.deepSleepMax());
+    ESP.restart();
+  }
   dir = SD.open("/");
 
   Serial.println("Connecting to WiFi");

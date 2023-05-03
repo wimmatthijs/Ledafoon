@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <WiFiManager.h>
 #include "datatypes.h"
-#include "LFSOperations.h"
+#include "FSOperations.h"
 #include "RTCRAM.h"
 
 class WiFiManagerApp{
