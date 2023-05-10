@@ -11,6 +11,7 @@
 #include <TZ.h>      //timezones
 #include "Wire.h"
 #include "PhoneKeypad.h"
+#include "PCF8574.h"
 
 
 //******************************************************************
@@ -67,10 +68,13 @@ AudioGeneratorMP3 *decoder = NULL;
 //Keypad variables
 const uint8_t KEYPAD_ADDRESS = 0x20;
 PhoneKeypad keyPad(KEYPAD_ADDRESS);
-char keys[] = "1A23798B465CsD0#NF@";  // N = NoKey, F = Fail (e.g. >1 keys pressed), @ = Bounced
+char keys[] = "#AH30582R69Cs471NF@";  // N = NoKey, F = Fail (e.g. >1 keys pressed), @ = Bounced
 volatile bool keyChange = false; // for interrupt in case of a keychange
 bool samplePlaying = false;
-
+//GPIO EXPANDER
+const uint8_t GPIO_ADDRESS = 0x21;
+PCF8574 pcf8574(GPIO_ADDRESS);
+const uint8_t LEDPIN = 7;
 
 
 
@@ -241,8 +245,23 @@ void setup() {
   {
     Serial.println("\nERROR: cannot communicate to keypad.\nRebooting.\n");
     delay(5000);
-    //ESP.restart();
+    ESP.restart();
   }
+  
+   // Set pinMode to OUTPUT, ALL unused pins must be set to output (datasheet)
+  pcf8574.pinMode(P0, INPUT);
+  for(int i=1;i<8;i++) {
+    pcf8574.pinMode(i, OUTPUT);
+  }
+	Serial.print("Init pcf8574...");
+	if (pcf8574.begin()){
+		Serial.println("OK");
+	}else{
+		Serial.println("NOK, rebooting.");
+    delay(5000);
+    ESP.restart();
+	}
+
 }
 
 
@@ -263,6 +282,17 @@ void loop() {
   //keypad management
   if (keyChange)
   {
+    //read the GPIO
+    PCF8574::DigitalInput val = pcf8574.digitalReadAll();
+    if (val.p0==LOW){
+      Serial.println("KEY0 PRESSED");
+      pcf8574.digitalWrite(LEDPIN, LOW);
+    }
+    else{
+      pcf8574.digitalWrite(LEDPIN, HIGH);
+    }
+    
+    //read the keypad
     uint8_t index = keyPad.readKey();
     keyChange = false;
     if (index < 16)
@@ -291,9 +321,11 @@ void loop() {
   //decode management
   if ((decoder) && (decoder->isRunning()))
   {
+    pcf8574.digitalWrite(LEDPIN, LOW);
     if (!decoder->loop()){
       decoder->stop();
       samplePlaying=false;
+      pcf8574.digitalWrite(LEDPIN, HIGH);
     }
   }
   else {

@@ -31,7 +31,7 @@ bool WiFiManagerApp::Run(){
     
     // res = wm.autoConnect(); // auto generated AP name from chipid
     //Serial.println("Calling autoConnect");
-    res = wm.autoConnect("Ledafoon"); // anonymous ap
+    res = wm.autoConnect("Ledafoon");
     // res = wm.autoConnect("AutoConnectAP","password"); // password protected ap
     
 
@@ -155,15 +155,15 @@ void WiFiManagerApp::saveParamCallback(){
     //Conversion of string to fingerprint
     //Serial.println("Processing thumbprint");
 
-    char hexstring[3] = {'0','0','\0'};
-    uint8_t fingerprint[20];
-    for (int i=0;i<20;i++){
-      int position = i*2;
-      hexstring[0]=c[position];
-      hexstring[1]=c[position+1];
-      hexstring[2] = '\0';
-      fingerprint[i] = (uint8_t)strtol(hexstring, NULL, 16);
-    }
+    // char hexstring[3] = {'0','0','\0'};
+    // //uint8_t fingerprint[20];
+    // for (int i=0;i<20;i++){
+    //   int position = i*2;
+    //   hexstring[0]=c[position];
+    //   hexstring[1]=c[position+1];
+    //   hexstring[2] = '\0';
+    //   //fingerprint[i] = (uint8_t)strtol(hexstring, NULL, 16);
+    // }
     //memcpy(goldAppSettings.fingerprint, fingerprint, sizeof(uint8_t)*20);
     //Serial.print("Set GoldAPI fingerprint to: ");
     for (int i=0;i<20;i++){
