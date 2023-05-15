@@ -3,15 +3,17 @@
 #include "AudioOutputI2S.h"
 #include "AudioGeneratorMP3.h"
 #include "AudioFileSourceID3.h"
-#include <WiFiManager.h>
 #include "datatypes.h"
 #include "FSOperations.h"
-#include "WiFiManagerApp.h"
+#include "WiFiManager/defines.h"
+#include "WiFiManager/Credentials.h"
+#include "WiFiManager/dynamicParams.h"
 #include <time.h>   //for doing time stuff
 #include <TZ.h>      //timezones
 #include "Wire.h"
 #include "PhoneKeypad.h"
 #include "PCF8574.h"
+
 
 
 //******************************************************************
@@ -20,7 +22,6 @@
 //Functions related to WiFi Manager
 void ConnectToWifi(); //Does what it says, goes to deepsleep if unsuccessful
 void RunWiFiManager(); //runs in case of hard reset (5 seconds) or first boot (no files in filesystem)
-void saveParamCallback(); //If custom parameters are saved on the webserver this function will be called
 void ResetWifiRoutine(); //
 //Time-keeping functions
 void SetupTime(); //configs the time and requests time from server (automatic through time library)
@@ -50,6 +51,7 @@ void loop();
 // global variables
 //******************************************************************
 //Variables for WiFi
+ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 WiFiSecrets wiFiSecrets;
 unsigned long wiFiConnectStartMillis;
 //timekeeping variables
@@ -124,16 +126,119 @@ void ConnectToWifi(){
   WiFi.begin(wiFiSecrets.SSID, wiFiSecrets.Pass);
 }
 
+void heartBeatPrint()
+{
+  static int num = 1;
+
+  if (WiFi.status() == WL_CONNECTED)
+    Serial.print("H");        // H means connected to WiFi
+  else
+  {
+    if (ESPAsync_WiFiManager->isConfigMode())
+      Serial.print("C");        // C means in Config Mode
+    else
+      Serial.print("F");        // F means not connected to WiFi
+  }
+
+  if (num == 80)
+  {
+    Serial.println();
+    num = 1;
+  }
+  else if (num++ % 10 == 0)
+  {
+    Serial.print(F(" "));
+  }
+}
+
+void check_status()
+{
+  static unsigned long checkstatus_timeout = 0;
+
+  //KH
+#define HEARTBEAT_INTERVAL    20000L
+  // Print hearbeat every HEARTBEAT_INTERVAL (20) seconds.
+  if ((millis() > checkstatus_timeout) || (checkstatus_timeout == 0))
+  {
+    heartBeatPrint();
+    checkstatus_timeout = millis() + HEARTBEAT_INTERVAL;
+  }
+}
+
+#if USING_CUSTOMS_STYLE
+const char NewCustomsStyle[] PROGMEM =
+  "<style>div,input{padding:5px;font-size:1em;}input{width:95%;}body{text-align: center;}"\
+  "button{background-color:blue;color:white;line-height:2.4rem;font-size:1.2rem;width:100%;}fieldset{border-radius:0.3rem;margin:0px;}</style>";
+#endif
+
+
+
 void RunWiFiManager(){
   //recover all current settings from the installed App's.
-  WiFiManagerApp wiFiManagerApp;
-  if(wiFiManagerApp.Run()){
-    ESP.restart();
+  Serial.print(F("\nStarting ESPAsync_WiFi using "));
+  Serial.print(FS_Name);
+  Serial.print(F(" on "));
+  Serial.println(ARDUINO_BOARD);
+  Serial.println(ESP_ASYNC_WIFI_MANAGER_LITE_VERSION);
+#if USING_MRD
+  Serial.println(ESP_MULTI_RESET_DETECTOR_VERSION);
+#else
+  Serial.println(ESP_DOUBLE_RESET_DETECTOR_VERSION);
+#endif
+  ESPAsync_WiFiManager = new ESPAsync_WiFiManager_Lite();
+  String AP_SSID = "Ledafoon";
+  String AP_PWD  = "Leda12345";
+  // Set customized AP SSID and PWD
+  ESPAsync_WiFiManager->setConfigPortal(AP_SSID, AP_PWD);
+
+  // Optional to change default AP IP(192.168.4.1) and channel(10)
+  //ESPAsync_WiFiManager->setConfigPortalIP(IPAddress(192, 168, 120, 1));
+  ESPAsync_WiFiManager->setConfigPortalChannel(0);
+
+#if USING_CUSTOMS_STYLE
+  ESPAsync_WiFiManager->setCustomsStyle(NewCustomsStyle);
+#endif
+
+#if USING_CUSTOMS_HEAD_ELEMENT
+  ESPAsync_WiFiManager->setCustomsHeadElement(PSTR("<style>html{filter: invert(10%);}</style>"));
+#endif
+
+#if USING_CORS_FEATURE
+  ESPAsync_WiFiManager->setCORSHeader(PSTR("Your Access-Control-Allow-Origin"));
+#endif
+
+  // Set customized DHCP HostName
+  ESPAsync_WiFiManager->begin(HOST_NAME);
+  while (WiFi.status() != WL_CONNECTED)
+  { 
+    ESPAsync_WiFiManager->run();
+    check_status();
+    Serial.print('.');
+    yield();
+    delay(1000);
   }
-  else{
+  String SSID = ESPAsync_WiFiManager->getWiFiSSID(0);
+  String PWD = ESPAsync_WiFiManager->getWiFiPW(0);
+  Serial.print("SSID: ");
+  Serial.println(SSID);
+  wiFiSecrets.Pass = PWD;
+  wiFiSecrets.SSID = SSID;
+  StoreSettings(&wiFiSecrets);
+  Serial.println("Wifi information stored, rebooting...\n");
+  delay(5000);
+  ESP.restart();
+  return;
+  
+  //Or use default Hostname "ESP_XXXXXX"
+  //ESPAsync_WiFiManager->begin();
+  //WiFiManagerApp wiFiManagerApp;
+  //if(wiFiManagerApp.Run()){
+    //ESP.restart();
+  //}
+  //else{
     //TODO: put some audio feedback here that wifi manager app didnt finish successfullly
-    ESP.deepSleep(ESP.deepSleepMax());
-  }
+    ESP.deepSleep(UINT64_MAX,RF_DISABLED);
+  //}
 }
 
 void ResetWifiRoutine(){
@@ -232,7 +337,7 @@ void setup() {
   wiFiConnectStartMillis = millis();
   ConnectToWifi();
 
-    // NOTE: PCF8574 will generate an interrupt on key press and release.
+  // NOTE: PCF8574 will generate an interrupt on key press and release.
   pinMode(D3, INPUT_PULLUP);
   attachInterrupt(D3, keyChanged, FALLING);
   keyChange = false;
