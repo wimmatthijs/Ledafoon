@@ -13,7 +13,9 @@
 #include "Wire.h"
 #include "PhoneKeypad.h"
 #include "PCF8574.h"
-
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncElegantOTA.h>
 
 
 //******************************************************************
@@ -43,6 +45,7 @@ void loop();
 #define SPI_CS_PIN D0
 
 #define WIFI_RESET_KEY 's' //button to reset microcontroller to reset WiFiManger
+#define OTA_KEY '#' //button to open OTA webserver on port 80
 #define LONGPRESS_TIME_SECONDS 5 //how long the reset button needs to be pushed in order for the reset routine to be triggered
 
 
@@ -54,6 +57,9 @@ void loop();
 ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 WiFiSecrets wiFiSecrets;
 unsigned long wiFiConnectStartMillis;
+//variables for elegantOTA
+AsyncWebServer* server = NULL;
+bool OTAServerStarted = false;
 //timekeeping variables
 volatile bool rtc_synced = false;   //keeps track if timesync already occured or not.
 static time_t now;
@@ -254,6 +260,18 @@ void SetupTime() {
   return;
 }
 
+void OTAUpdate(){
+  server = new AsyncWebServer(80);
+  server->on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Hi! This is a sample response.");
+  });
+  AsyncElegantOTA.begin(server);    // Start AsyncElegantOTA
+  server->begin();
+  Serial.println("OTA server started");
+}
+
+
+
 void NTP_Sync_Callback(){
   rtc_synced=true;
   char output[30], day_output[30];
@@ -387,7 +405,7 @@ void loop() {
   //keypad management
   if (keyChange)
   {
-    //read the GPIO
+    //read the extra GPIO
     PCF8574::DigitalInput val = pcf8574.digitalReadAll();
     if (val.p0==LOW){
       Serial.println("KEY0 PRESSED");
@@ -420,6 +438,10 @@ void loop() {
     if(keyPad.getChar()==WIFI_RESET_KEY){
       Serial.println("Resetting WiFi network");
       ResetWifiRoutine();
+    }
+    if(keyPad.getChar()==OTA_KEY && !OTAServerStarted){
+      Serial.println("Opening Server for OTA Update");
+      OTAUpdate();
     }
   }
   
