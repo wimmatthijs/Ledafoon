@@ -62,6 +62,7 @@ AsyncWebServer* server = NULL;
 bool OTAServerStarted = false;
 //timekeeping variables
 volatile bool rtc_synced = false;   //keeps track if timesync already occured or not.
+bool rtcSyncStarted = false;
 static time_t now;
 String timeString, dateString; // strings to hold time 
 int StartTime, CurrentHour = 0, CurrentMin = 0, CurrentSec = 0;
@@ -78,6 +79,7 @@ const uint8_t KEYPAD_ADDRESS = 0x20;
 PhoneKeypad keyPad(KEYPAD_ADDRESS);
 char keys[] = "#AH30582R69Cs471NF@";  // N = NoKey, F = Fail (e.g. >1 keys pressed), @ = Bounced
 volatile bool keyChange = false; // for interrupt in case of a keychange
+bool hornDown = true;
 bool samplePlaying = false;
 //GPIO EXPANDER
 const uint8_t GPIO_ADDRESS = 0x21;
@@ -322,17 +324,19 @@ bool playMP3FromPath(String path){
     }
   return false;
 }
+
+void resetState(){
+  if(decoder && decoder->isRunning()){
+    decoder->stop();
+  }
+  samplePlaying=false;
+  keyPad.clearLatestChars();
+  pcf8574.digitalWrite(LEDPIN, HIGH);
+}
     
 
 void setup() {
    
-  //TODO: this should be one of the i2C buttons on the phone and not a pin on the ESP
-  //pinMode(BUTTON_PIN, INPUT);  
-  //If reset button remains pushed, reset the WiFi
-  //if (digitalRead(BUTTON_PIN) == HIGH){
-    //ResetWifiRoutine();
-  //}
-
   Serial.begin(74880); //Same as ESP8266 bootloader
   delay(1000);
   Serial.println("Serial started");
@@ -385,11 +389,7 @@ void setup() {
     delay(5000);
     ESP.restart();
 	}
-  Serial.println("the OTA upgrade was successfulm Hurray!!!");
 }
-
-
-bool rtcSyncStarted = false;
 
 void loop() {
   
@@ -408,28 +408,31 @@ void loop() {
   {
     //read the extra GPIO
     PCF8574::DigitalInput val = pcf8574.digitalReadAll();
-    if (val.p0==LOW){
-      Serial.println("HORNSWITCH PRESSED");
-      pcf8574.digitalWrite(LEDPIN, LOW);
-      keyPad.clearLatestChars();
+    if (val.p0==HIGH){
+      //Serial.println("Horn down");
+      hornDown = true;
+      resetState();
     }
     else{
-      pcf8574.digitalWrite(LEDPIN, HIGH);
+      hornDown=false;
+      pcf8574.digitalWrite(LEDPIN, LOW);
     }
     
-    //read the keypad
-    uint8_t index = keyPad.readKey();
-    keyChange = false;
-    if (index < 16)
-    {
-      String path = "/s.mp3";
-      path[1]=keyPad.getChar();
-      samplePlaying=false;
-      playMP3FromPath(path);
+    if(!hornDown && !samplePlaying){
+      //read the keypad
+      uint8_t index = keyPad.readKey();
+      if (index < 16)
+      {
+        String path = "/s.mp3";
+        path[1]=keyPad.getChar();
+        samplePlaying=false;
+        playMP3FromPath(path);
+      }
+      Serial.print(keyPad.getLatestCharsLength());
+      Serial.print(": ");
+      Serial.println(keyPad.getLatestChars());
     }
-    Serial.print(keyPad.getLatestCharsLength());
-    Serial.print(": ");
-    Serial.println(keyPad.getLatestChars());
+    keyChange = false;
   }
   if(keyPad.isPressed() && keyPad.getPressLengthMillis() > LONGPRESS_TIME_SECONDS*1000){
     //perform special reset-functions on longpresses
@@ -459,8 +462,8 @@ void loop() {
       String samplePath = "/" + keyPad.getLatestChars() + ".mp3";
       if(SD.exists(samplePath)){
         samplePlaying=true;
-        keyPad.clearLatestChars();
         playMP3FromPath(samplePath);
+        keyPad.clearLatestChars();
       }
     }
   }
