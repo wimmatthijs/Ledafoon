@@ -41,7 +41,7 @@ void loop();
 #define TIMEZONE TZ_Europe_Brussels
 
 // You may need a fast SD card. Set this as high as it will work (40MHz max).
-#define SPI_SPEED SD_SCK_MHZ(20)
+#define SPI_SPEED SD_SCK_MHZ(10)
 #define SPI_CS_PIN D0
 
 #define WIFI_RESET_KEY 's' //button to reset microcontroller to reset WiFiManger
@@ -268,6 +268,7 @@ void OTAUpdate(){
   AsyncElegantOTA.begin(server);    // Start AsyncElegantOTA
   server->begin();
   Serial.println("OTA server started");
+  OTAServerStarted = true;
 }
 
 
@@ -384,7 +385,7 @@ void setup() {
     delay(5000);
     ESP.restart();
 	}
-
+  Serial.println("the OTA upgrade was successfulm Hurray!!!");
 }
 
 
@@ -408,8 +409,9 @@ void loop() {
     //read the extra GPIO
     PCF8574::DigitalInput val = pcf8574.digitalReadAll();
     if (val.p0==LOW){
-      Serial.println("KEY0 PRESSED");
+      Serial.println("HORNSWITCH PRESSED");
       pcf8574.digitalWrite(LEDPIN, LOW);
+      keyPad.clearLatestChars();
     }
     else{
       pcf8574.digitalWrite(LEDPIN, HIGH);
@@ -422,9 +424,6 @@ void loop() {
     {
       String path = "/s.mp3";
       path[1]=keyPad.getChar();
-      if(index == 12 || index == 15){  //star or pound clears it for now, should become horn down
-        keyPad.clearLatestChars();
-      } 
       samplePlaying=false;
       playMP3FromPath(path);
     }
