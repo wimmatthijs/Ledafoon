@@ -214,7 +214,6 @@ void RunWiFiManager(){
 #if USING_CORS_FEATURE
   ESPAsync_WiFiManager->setCORSHeader(PSTR("Your Access-Control-Allow-Origin"));
 #endif
-
   // Set customized DHCP HostName
   ESPAsync_WiFiManager->begin(HOST_NAME);
   while (WiFi.status() != WL_CONNECTED)
@@ -262,17 +261,23 @@ void SetupTime() {
   return;
 }
 
-void OTAUpdate(){
+void OTAUpdateAP(){
+  const char *ssidOTA = "LEDAFOONOTA";
+  const char *passwordOTA = "Leda12345";
+  WiFi.softAP(ssidOTA,passwordOTA);
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);
+
   server = new AsyncWebServer(80);
   server->on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", "Hi! This is a sample response.");
+    request->send(200, "text/plain", "Welkom bij de Ledafoon, om een ota update uit te voeren ga naar <ip>/update");
   });
   AsyncElegantOTA.begin(server);    // Start AsyncElegantOTA
   server->begin();
   Serial.println("OTA server started");
-  OTAServerStarted = true;
+  while(1) delay(5000);
 }
-
 
 
 void NTP_Sync_Callback(){
@@ -340,26 +345,7 @@ void setup() {
   Serial.begin(74880); //Same as ESP8266 bootloader
   delay(1000);
   Serial.println("Serial started");
-
-  audioLogger = &Serial;  
-  source = new AudioFileSourceSD();
-  output = new AudioOutputI2S();
-  decoder = new AudioGeneratorMP3();
- 
-  // NOTE: SD.begin(...) should be called AFTER AudioOutput...()
-  //       to takover the the SPI pins if they share some with I2S
-  //       (i.e. D8 on Wemos D1 mini is both I2S BCK and SPI SS)
-  if(!SD.begin(SPI_CS_PIN, SPI_SPEED)){
-    Serial.println("Communication with SD card Failed");
-    ESP.deepSleep(ESP.deepSleepMax());
-    ESP.restart();
-  }
-  dir = SD.open("/");
-
-  Serial.println("Connecting to WiFi");
-  wiFiConnectStartMillis = millis();
-  ConnectToWifi();
-
+  
   // NOTE: PCF8574 will generate an interrupt on key press and release.
   pinMode(D3, INPUT_PULLUP);
   attachInterrupt(D3, keyChanged, FALLING);
@@ -389,6 +375,36 @@ void setup() {
     delay(5000);
     ESP.restart();
 	}
+  if(keyPad.readKey()=='#'){
+    long startTimeOTAONBOOT = millis();
+    while(millis()-startTimeOTAONBOOT < 3000 && keyPad.readKey()=='#'){
+      yield();
+      delay(250);
+    }
+    if(keyPad.readKey()=='#' && millis()-startTimeOTAONBOOT > 3000){
+      OTAUpdateAP();
+    }
+  }
+
+  audioLogger = &Serial;  
+  source = new AudioFileSourceSD();
+  output = new AudioOutputI2S();
+  decoder = new AudioGeneratorMP3();
+ 
+  // NOTE: SD.begin(...) should be called AFTER AudioOutput...()
+  //       to takover the the SPI pins if they share some with I2S
+  //       (i.e. D8 on Wemos D1 mini is both I2S BCK and SPI SS)
+  if(!SD.begin(SPI_CS_PIN, SPI_SPEED)){
+    Serial.println("Communication with SD card Failed");
+    ESP.deepSleep(ESP.deepSleepMax());
+    ESP.restart();
+  }
+  dir = SD.open("/");
+
+  Serial.println("Connecting to WiFi");
+  wiFiConnectStartMillis = millis();
+  ConnectToWifi();
+
 }
 
 void loop() {
@@ -442,8 +458,8 @@ void loop() {
       ResetWifiRoutine();
     }
     if(keyPad.getChar()==OTA_KEY && !OTAServerStarted){
-      Serial.println("Opening Server for OTA Update");
-      OTAUpdate();
+      Serial.println("Opening Access Point for OTA Update");
+      OTAUpdateAP();
     }
   }
   
