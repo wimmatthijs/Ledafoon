@@ -33,10 +33,17 @@ void keyChanged();
 //Program Functions
 void setup();
 void loop();
+//SD Card update callback
+void progressCallBack(size_t currSize, size_t totalSize);
+
 
 //******************************************************************
 // Defines
 //******************************************************************
+
+#define FIRMWARE_VERSION "1.0.0"
+
+//defines for timsyncing (not used at the moment yet)
 #define MAXSLEEPWITHOUTSYNC 24*60* 60 //standard setting Maximum 24 hours without a timesync. If this time gets exceeded a timesync will be forced. 
 #define TIMEZONE TZ_Europe_Brussels
 
@@ -45,7 +52,8 @@ void loop();
 #define SPI_CS_PIN D0
 
 #define WIFI_RESET_KEY 's' //button to reset microcontroller to reset WiFiManger
-#define OTA_KEY '#' //button to open OTA webserver on port 80
+#define OTA_KEY '#' //button to open OTA over Access point and webserver on port 80
+#define SDCARD_UPDATE_KEY 'R' //button to execute a update of the firmare from a firmware.bin file on the SD card
 #define LONGPRESS_TIME_SECONDS 5 //how long the reset button needs to be pushed in order for the reset routine to be triggered
 
 
@@ -59,7 +67,7 @@ WiFiSecrets wiFiSecrets;
 unsigned long wiFiConnectStartMillis;
 //variables for elegantOTA
 AsyncWebServer* server = NULL;
-bool OTAServerStarted = false;
+bool FWUpdateStarted = false;
 //timekeeping variables
 volatile bool rtc_synced = false;   //keeps track if timesync already occured or not.
 bool rtcSyncStarted = false;
@@ -279,6 +287,47 @@ void OTAUpdateAP(){
   while(1) delay(5000);
 }
 
+void UpdateSD(){
+  Serial.print(F("\nCurrent firmware version: "));
+  Serial.println(FIRMWARE_VERSION);
+ 
+  Serial.print(F("\nSearch for firmware.bin..."));
+  File firmware =  SD.open("/firmware.bin");
+  if (firmware) {
+    FWUpdateStarted=true;
+    Serial.println(F("found!"));
+    Serial.println(F("Try to update!"));
+
+    Update.onProgress(progressCallBack);
+
+    Update.begin(firmware.size(), U_FLASH);
+    Update.writeStream(firmware);
+    if (Update.end()){
+        Serial.println(F("Update finished!"));
+    }else{
+        Serial.println(F("Update error!"));
+        Serial.println(Update.getError());
+    }
+
+    firmware.close();
+
+    if (SD.rename("/firmware.bin", "/firmware.bak")){
+        Serial.println(F("Firmware rename succesfully!"));
+    }else{
+        Serial.println(F("Firmware rename error!"));
+    }
+    delay(2000);
+
+    ESP.reset();
+  }else{
+      Serial.println(F("not found!"));
+  }
+}
+
+//called to report progress of the update over SD card
+void progressCallBack(size_t currSize, size_t totalSize) {
+      Serial.printf("CALLBACK:  Update process at %d of %d bytes...\n", currSize, totalSize);
+}
 
 void NTP_Sync_Callback(){
   rtc_synced=true;
@@ -405,6 +454,7 @@ void setup() {
   wiFiConnectStartMillis = millis();
   ConnectToWifi();
 
+  Serial.println("update from SD Card succeeded, Hurray!! Redundancy!!! ");
 }
 
 void loop() {
@@ -457,9 +507,13 @@ void loop() {
       Serial.println("Resetting WiFi network");
       ResetWifiRoutine();
     }
-    if(keyPad.getChar()==OTA_KEY && !OTAServerStarted){
+    if(keyPad.getChar()==OTA_KEY && !FWUpdateStarted){
       Serial.println("Opening Access Point for OTA Update");
       OTAUpdateAP();
+    }
+    if(keyPad.getChar()==SDCARD_UPDATE_KEY && !FWUpdateStarted){
+      Serial.println("attempting an update from firmware.bin on the SD card");
+      UpdateSD();
     }
   }
   
