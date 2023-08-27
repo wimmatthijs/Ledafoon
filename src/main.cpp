@@ -35,6 +35,8 @@ void setup();
 void loop();
 //SD Card update callback
 void progressCallBack(size_t currSize, size_t totalSize);
+void LED_Ack();
+void LED_Error();
 
 
 //******************************************************************
@@ -257,6 +259,7 @@ void RunWiFiManager(){
 }
 
 void ResetWifiRoutine(){
+  LED_Ack();
   if (SD.exists("/WiFiSecrets.txt")) SD.remove("/WiFiSecrets.txt");
   RunWiFiManager();
 }
@@ -270,6 +273,7 @@ void SetupTime() {
 }
 
 void OTAUpdateAP(){
+  LED_Ack();
   const char *ssidOTA = "LEDAFOONOTA";
   const char *passwordOTA = "Leda12345";
   WiFi.softAP(ssidOTA,passwordOTA);
@@ -294,6 +298,12 @@ void UpdateSD(){
   Serial.print(F("\nSearch for firmware.bin..."));
   File firmware =  SD.open("/firmware.bin");
   if (firmware) {
+    for (int i=0; i<5;i++){
+      pcf8574.digitalWrite(LEDPIN, LOW);
+      delay(200);
+      pcf8574.digitalWrite(LEDPIN, HIGH);
+      delay(200);
+    }
     FWUpdateStarted=true;
     Serial.println(F("found!"));
     Serial.println(F("Try to update!"));
@@ -304,8 +314,10 @@ void UpdateSD(){
     Update.writeStream(firmware);
     if (Update.end()){
         Serial.println(F("Update finished!"));
+        LED_Ack();
     }else{
         Serial.println(F("Update error!"));
+        LED_Error();
         Serial.println(Update.getError());
     }
 
@@ -323,6 +335,25 @@ void UpdateSD(){
       Serial.println(F("not found!"));
   }
 }
+
+void LED_Ack(){
+  for (int i=0; i<5;i++){
+      pcf8574.digitalWrite(LEDPIN, LOW);
+      delay(500);
+      pcf8574.digitalWrite(LEDPIN, HIGH);
+      delay(500);
+  }
+}
+
+void LED_Error(){
+  for (int i=0; i<5;i++){
+      pcf8574.digitalWrite(LEDPIN, LOW);
+      delay(200);
+      pcf8574.digitalWrite(LEDPIN, HIGH);
+      delay(200);
+  }
+}
+
 
 //called to report progress of the update over SD card
 void progressCallBack(size_t currSize, size_t totalSize) {
@@ -424,17 +455,7 @@ void setup() {
     delay(5000);
     ESP.restart();
 	}
-  if(keyPad.readKey()=='#'){
-    long startTimeOTAONBOOT = millis();
-    while(millis()-startTimeOTAONBOOT < 3000 && keyPad.readKey()=='#'){
-      yield();
-      delay(250);
-    }
-    if(keyPad.readKey()=='#' && millis()-startTimeOTAONBOOT > 3000){
-      OTAUpdateAP();
-    }
-  }
-
+  
   audioLogger = &Serial;  
   source = new AudioFileSourceSD();
   output = new AudioOutputI2S();
@@ -450,9 +471,42 @@ void setup() {
   }
   dir = SD.open("/");
 
+  if(keyPad.readKey()==OTA_KEY){
+    long startTimeONBOOTKEYPRESS = millis();
+    while(millis()-startTimeONBOOTKEYPRESS < 3000 && keyPad.readKey()==OTA_KEY){
+      yield();
+      delay(250);
+    }
+    if(keyPad.readKey()==OTA_KEY && millis()-startTimeONBOOTKEYPRESS > 3000){
+      OTAUpdateAP();
+    }
+  }
+
+  if(keyPad.readKey()==WIFI_RESET_KEY){
+    long startTimeONBOOTKEYPRESS = millis();
+    while(millis()-startTimeONBOOTKEYPRESS < 3000 && keyPad.readKey()==WIFI_RESET_KEY){
+      yield();
+      delay(250);
+    }
+    if(keyPad.readKey()==WIFI_RESET_KEY && millis()-startTimeONBOOTKEYPRESS > 3000){
+      ResetWifiRoutine();
+    }
+  }
+
+  if(keyPad.readKey()==SDCARD_UPDATE_KEY){
+    long startTimeONBOOTKEYPRESS = millis();
+    while(millis()-startTimeONBOOTKEYPRESS < 3000 && keyPad.readKey()==SDCARD_UPDATE_KEY){
+      yield();
+      delay(250);
+    }
+    if(keyPad.readKey()==SDCARD_UPDATE_KEY && millis()-startTimeONBOOTKEYPRESS > 3000){
+      UpdateSD();
+    }
+  }
+
   Serial.println("Connecting to WiFi");
   wiFiConnectStartMillis = millis();
-  ConnectToWifi();
+  //ConnectToWifi();
 
   Serial.println("update from SD Card succeeded, Hurray!! Redundancy!!! ");
 }
@@ -460,22 +514,23 @@ void setup() {
 void loop() {
   
   //wifi and rtc management
-  if(!rtcSyncStarted && !rtc_synced && WiFi.status()==WL_CONNECTED){
-    Serial.println("WiFi Connected, synchronising time");
-    rtcSyncStarted = true;
-    SetupTime();
-  }
-  if(rtc_synced && WiFi.status()==WL_CONNECTION_LOST){
-    rtc_synced=false;
-  }
+  // if(!rtcSyncStarted && !rtc_synced && WiFi.status()==WL_CONNECTED){
+  //   Serial.println("WiFi Connected, synchronising time");
+  //   rtcSyncStarted = true;
+  //   SetupTime();
+  // }
+  // if(rtc_synced && WiFi.status()==WL_CONNECTION_LOST){
+  //   rtc_synced=false;
+  // }
 
   //keypad management
   if (keyChange)
   {
+    Serial.print("keychange");
     //read the extra GPIO
     PCF8574::DigitalInput val = pcf8574.digitalReadAll();
     if (val.p0==HIGH){
-      //Serial.println("Horn down");
+      Serial.println("Horn down");
       hornDown = true;
       resetState();
     }
@@ -484,7 +539,7 @@ void loop() {
       pcf8574.digitalWrite(LEDPIN, LOW);
     }
     
-    if(!hornDown && !samplePlaying){
+    if(!hornDown){
       //read the keypad
       uint8_t index = keyPad.readKey();
       if (index < 16)
@@ -497,27 +552,35 @@ void loop() {
       Serial.print(keyPad.getLatestCharsLength());
       Serial.print(": ");
       Serial.println(keyPad.getLatestChars());
+
+      if(keyPad.getLatestCharsLength()>2 && !hornDown){
+        String samplePath = "/" + keyPad.getLatestChars() + ".mp3";
+        if(SD.exists(samplePath)){
+          decoder->stop();
+          samplePlaying=true;
+          playMP3FromPath(samplePath);
+          keyPad.clearLatestChars();
+      }
     }
+    //update in nokia keypad presses
+    if(keyPad.getLatestChars()=="88732833"){
+      decoder->stop();
+      UpdateSD();
+    }
+    //reset in nokia keypad presses
+    if(keyPad.getLatestChars()=="777337777338"){
+      decoder->stop();
+      ResetWifiRoutine();
+    }
+  }
     keyChange = false;
   }
   if(keyPad.isPressed() && keyPad.getPressLengthMillis() > LONGPRESS_TIME_SECONDS*1000){
     //perform special reset-functions on longpresses
     Serial.println("Longpress detected");
-    if(keyPad.getChar()==WIFI_RESET_KEY){
-      Serial.println("Resetting WiFi network");
-      ResetWifiRoutine();
-    }
-    if(keyPad.getChar()==OTA_KEY && !FWUpdateStarted){
-      Serial.println("Opening Access Point for OTA Update");
-      OTAUpdateAP();
-    }
-    if(keyPad.getChar()==SDCARD_UPDATE_KEY && !FWUpdateStarted){
-      Serial.println("attempting an update from firmware.bin on the SD card");
-      UpdateSD();
-    }
   }
   
-  //decode management
+  //decoder management
   if ((decoder) && (decoder->isRunning()))
   {
     pcf8574.digitalWrite(LEDPIN, LOW);
@@ -525,16 +588,6 @@ void loop() {
       decoder->stop();
       samplePlaying=false;
       pcf8574.digitalWrite(LEDPIN, HIGH);
-    }
-  }
-  else {
-    if(keyPad.getLatestCharsLength()>2){
-      String samplePath = "/" + keyPad.getLatestChars() + ".mp3";
-      if(SD.exists(samplePath)){
-        samplePlaying=true;
-        playMP3FromPath(samplePath);
-        keyPad.clearLatestChars();
-      }
     }
   }
 }
