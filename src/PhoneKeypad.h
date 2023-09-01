@@ -9,6 +9,8 @@
 #include "Arduino.h"
 #include "Wire.h"
 
+//#define Ledafoon1
+
 #define I2C_KEYPAD_LIB_VERSION    (F("1.0.0"))
 
 #define I2C_KEYPAD_NOKEY          16

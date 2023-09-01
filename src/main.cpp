@@ -1,3 +1,28 @@
+
+//******************************************************************
+// Defines
+//******************************************************************
+
+#define FIRMWARE_VERSION "1.0.0"
+//#define Ledafoon1 //rode telefoon is 1, andere is de Siemens 
+
+//defines for timsyncing (not used at the moment yet)
+#define MAXSLEEPWITHOUTSYNC 24*60* 60 //standard setting Maximum 24 hours without a timesync. If this time gets exceeded a timesync will be forced. 
+#define TIMEZONE TZ_Europe_Brussels
+
+// You may need a fast SD card. Set this as high as it will work (40MHz max).
+#define SPI_SPEED SD_SCK_MHZ(10)
+#define SPI_CS_PIN D0
+
+#define WIFI_RESET_KEY 's' //button to reset microcontroller to reset WiFiManger
+#define OTA_KEY '#' //button to open OTA over Access point and webserver on port 80
+#define SDCARD_UPDATE_KEY 'R' //button to execute a update of the firmare from a firmware.bin file on the SD card
+#define LONGPRESS_TIME_SECONDS 5 //how long the reset button needs to be pushed in order for the reset routine to be triggered
+
+//******************************************************************
+// includes
+//******************************************************************
+
 #include <Arduino.h>
 #include "AudioFileSourceSD.h"
 #include "AudioOutputI2S.h"
@@ -39,26 +64,6 @@ void LED_Ack();
 void LED_Error();
 
 
-//******************************************************************
-// Defines
-//******************************************************************
-
-#define FIRMWARE_VERSION "1.0.0"
-
-//defines for timsyncing (not used at the moment yet)
-#define MAXSLEEPWITHOUTSYNC 24*60* 60 //standard setting Maximum 24 hours without a timesync. If this time gets exceeded a timesync will be forced. 
-#define TIMEZONE TZ_Europe_Brussels
-
-// You may need a fast SD card. Set this as high as it will work (40MHz max).
-#define SPI_SPEED SD_SCK_MHZ(10)
-#define SPI_CS_PIN D0
-
-#define WIFI_RESET_KEY 's' //button to reset microcontroller to reset WiFiManger
-#define OTA_KEY '#' //button to open OTA over Access point and webserver on port 80
-#define SDCARD_UPDATE_KEY 'R' //button to execute a update of the firmare from a firmware.bin file on the SD card
-#define LONGPRESS_TIME_SECONDS 5 //how long the reset button needs to be pushed in order for the reset routine to be triggered
-
-
 
 //******************************************************************
 // global variables
@@ -87,7 +92,11 @@ AudioGeneratorMP3 *decoder = NULL;
 //Keypad variables
 const uint8_t KEYPAD_ADDRESS = 0x20;
 PhoneKeypad keyPad(KEYPAD_ADDRESS);
+#ifdef Ledafoon1
 char keys[] = "#AH30582R69Cs471NF@";  // N = NoKey, F = Fail (e.g. >1 keys pressed), @ = Bounced
+#else
+char keys[] = "123N456N789NN0NNNF@";  // N = NoKey, F = Fail (e.g. >1 keys pressed), @ = Bounced
+#endif
 volatile bool keyChange = false; // for interrupt in case of a keychange
 bool hornDown = true;
 bool samplePlaying = false;
@@ -526,10 +535,10 @@ void loop() {
   //keypad management
   if (keyChange)
   {
-    Serial.print("keychange");
+    // Serial.print("keychange");
     //read the extra GPIO
     PCF8574::DigitalInput val = pcf8574.digitalReadAll();
-    if (val.p0==HIGH){
+    if (val.p0==LOW){
       Serial.println("Horn down");
       hornDown = true;
       resetState();
@@ -549,9 +558,9 @@ void loop() {
         samplePlaying=false;
         playMP3FromPath(path);
       }
-      Serial.print(keyPad.getLatestCharsLength());
-      Serial.print(": ");
-      Serial.println(keyPad.getLatestChars());
+      // Serial.print(keyPad.getLatestCharsLength());
+      // Serial.print(": ");
+      // Serial.println(keyPad.getLatestChars());
 
       if(keyPad.getLatestCharsLength()>2 && !hornDown){
         String samplePath = "/" + keyPad.getLatestChars() + ".mp3";

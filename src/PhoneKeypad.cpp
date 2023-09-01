@@ -17,7 +17,9 @@ PhoneKeypad::PhoneKeypad(const uint8_t deviceAddress, TwoWire *wire)
 }
 
 
+
 #if defined(ESP8266) || defined(ESP32)
+#ifdef Ledafoon1
 bool PhoneKeypad::begin(uint8_t sda, uint8_t scl)
 {
   _wire->begin(sda, scl);
@@ -25,6 +27,15 @@ bool PhoneKeypad::begin(uint8_t sda, uint8_t scl)
   _read(0xF0);
   return isConnected();
 }
+#else
+bool PhoneKeypad::begin(uint8_t sda, uint8_t scl)
+{
+  _wire->begin(sda, scl);
+  //  enable interrupts
+  _read(0x9C);
+  return isConnected();
+}
+#endif
 #endif
 
 
@@ -32,7 +43,11 @@ bool PhoneKeypad::begin()
 {
   _wire->begin();
   //  enable interrupts
+  #ifdef Ledafoon1
   _read(0xF0);
+  #else
+  _read(0x9C);
+  #endif
   return isConnected();
 }
 
@@ -167,6 +182,7 @@ uint8_t PhoneKeypad::_read(uint8_t mask)
 }
 
 
+#ifdef Ledafoon1
 uint8_t PhoneKeypad::_readKey4x4()
 {
   //  key = row + 4 x col
@@ -196,6 +212,37 @@ uint8_t PhoneKeypad::_readKey4x4()
 
   return key;   // 0..15
 }
+#else
+uint8_t PhoneKeypad::_readKey4x4()
+{
+  //  key = row + 4 x col
+  uint8_t key = 0;
+
+  //  mask = 4 rows as input pull up, 4 columns as output
+  uint8_t rows = _read(0x39);
+  //  check if single line has gone low.
+  if (rows == 0x39)      return I2C_KEYPAD_NOKEY;
+  else if (rows == 25) key = 0;
+  else if (rows == 41) key = 1;
+  else if (rows == 49) key = 2;
+  // else if (rows == 0x3B) key = 3; Not connected in this phone
+  else return I2C_KEYPAD_FAIL;
+
+  // 4 columns as input pull up, 4 rows as output
+  uint8_t cols = _read(0xC6);
+  // check if single line has gone low.
+  if (cols == 0xC6)      return I2C_KEYPAD_NOKEY;
+  else if (cols == 134) key += 0;
+  else if (cols == 194) key += 4;
+  else if (cols == 70) key += 8;
+  else if (cols == 196) key += 12;
+  else return I2C_KEYPAD_FAIL;
+
+  _lastKey = key;
+
+  return key;   // 0..15
+}
+#endif
 
 
 //  not tested
